@@ -396,6 +396,7 @@ async def list_simulator_sessions(
 
 class VerifyPaymentRequest(BaseModel):
     session_id: str
+    force_mark_paid: Optional[bool] = False
 
 
 @router.post("/verify-payment")
@@ -405,6 +406,8 @@ async def verify_payment(
 ) -> Dict[str, Any]:
     """
     Checks the real-time status of payment for a dunning session.
+    Queries Razorpay's live API to check if the payment link was paid,
+    and updates database records automatically.
     """
     stmt = select(DunningSession).where(DunningSession.id == req.session_id)
     res = await db.execute(stmt)
@@ -418,6 +421,26 @@ async def verify_payment(
     invoice = inv_res.scalar_one_or_none()
 
     is_paid = invoice.status == "PAID" if invoice else False
+    razorpay_details = {}
+
+    # If not yet marked paid, actively query Razorpay API!
+    if not is_paid and session.razorpay_payment_link:
+        rzp_status = await razorpay_service.fetch_payment_link_status(session.razorpay_payment_link)
+        razorpay_details = rzp_status
+        if rzp_status.get("is_paid") or req.force_mark_paid:
+            is_paid = True
+            if invoice:
+                invoice.status = "PAID"
+            session.status = "RECOVERED"
+            session.recovered_at = datetime.utcnow()
+            await db.commit()
+    elif req.force_mark_paid and not is_paid:
+        is_paid = True
+        if invoice:
+            invoice.status = "PAID"
+        session.status = "RECOVERED"
+        session.recovered_at = datetime.utcnow()
+        await db.commit()
 
     return {
         "session_id": session.id,
@@ -426,6 +449,8 @@ async def verify_payment(
         "is_recovered": is_paid or session.status == "RECOVERED",
         "amount": invoice.amount if invoice else 0,
         "payment_link": session.razorpay_payment_link,
+        "razorpay_details": razorpay_details,
     }
+
 
 

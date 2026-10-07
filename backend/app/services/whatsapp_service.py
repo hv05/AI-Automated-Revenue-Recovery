@@ -27,6 +27,16 @@ class WhatsAppService:
     def is_configured(self) -> bool:
         return bool(self.account_sid and self.auth_token)
 
+    def get_direct_whatsapp_url(self, to_phone: str, message: str) -> str:
+        """
+        Generates a direct Click-to-Chat WhatsApp URL (wa.me) that allows
+        instant 1-click messaging without needing paid Twilio plans.
+        """
+        clean_digits = "".join(ch for ch in to_phone if ch.isdigit())
+        import urllib.parse
+        encoded_text = urllib.parse.quote(message)
+        return f"https://wa.me/{clean_digits}?text={encoded_text}"
+
     async def send_message(self, to_phone: str, message: str) -> Dict[str, Any]:
         """
         Send a real WhatsApp message to the customer's phone number.
@@ -42,6 +52,8 @@ class WhatsAppService:
         else:
             formatted_to = clean_phone
 
+        direct_url = self.get_direct_whatsapp_url(clean_phone, message)
+
         # If Twilio is not configured, log and return simulation status
         if not self.is_configured():
             logger.info(
@@ -51,6 +63,7 @@ class WhatsAppService:
                 "success": True,
                 "mode": "simulated",
                 "to": formatted_to,
+                "direct_url": direct_url,
                 "message": "Twilio credentials not configured in .env. Message recorded in session transcript.",
             }
 
@@ -77,17 +90,27 @@ class WhatsAppService:
                         "mode": "live",
                         "sid": data.get("sid"),
                         "status": data.get("status"),
+                        "direct_url": direct_url,
                     }
                 else:
                     logger.error(f"Twilio WhatsApp API Error {res.status_code}: {res.text}")
+                    error_text = res.text
+                    reason = "Twilio API error"
+                    if "20003" in error_text:
+                        reason = "Twilio Trial expired. Upgrade Twilio or use 1-Click Direct WhatsApp."
+                    elif "21654" in error_text or "21608" in error_text:
+                        reason = "Recipient number must join Twilio sandbox (+14155238886) first, or use 1-Click Direct WhatsApp."
+
                     return {
                         "success": False,
                         "status_code": res.status_code,
-                        "error": res.text,
+                        "error": error_text,
+                        "reason": reason,
+                        "direct_url": direct_url,
                     }
         except Exception as e:
             logger.error(f"Failed to dispatch real WhatsApp message: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "direct_url": direct_url}
 
 
 whatsapp_service = WhatsAppService()

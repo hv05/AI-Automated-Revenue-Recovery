@@ -1,7 +1,8 @@
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
@@ -12,7 +13,11 @@ from app.db.models import (
     Subscription,
     Invoice,
     DunningSession,
+    generate_id,
 )
+from app.services.smart_retry import smart_retry_scheduler
+from app.services.razorpay_service import razorpay_service
+from app.services.whatsapp_service import whatsapp_service
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +145,215 @@ async def get_dashboard_transactions(
         "count": len(transactions),
         "transactions": transactions,
     }
+
+
+class ManualCustomerRequest(BaseModel):
+    customer_name: str = Field(..., description="Customer full name")
+    customer_email: str = Field(..., description="Customer email address")
+    customer_phone: str = Field(default="+918432184524", description="Customer phone number")
+    plan_name: str = Field(default="Pro Developer Annual", description="Subscription plan name")
+    amount: float = Field(default=2499.0, ge=1.0, description="Amount in INR")
+    bank: str = Field(default="HDFC", description="Issuing bank")
+    card_type: str = Field(default="debit", description="Payment rail (debit, credit, upi)")
+    failure_code: str = Field(default="INSUFFICIENT_FUNDS", description="Payment failure code")
+    failure_reason: str = Field(default="Payment failed due to temporary bank decline", description="Failure reason")
+
+
+@router.post("/customers/manual")
+async def create_manual_customer_transaction(
+    req: ManualCustomerRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Manually creates a new customer record, subscription, failed invoice,
+    generates a real Razorpay payment link, and schedules a dunning session.
+    """
+    # 1. Lookup or create Customer
+    cust_stmt = select(Customer).where(Customer.email == req.customer_email)
+    c_res = await db.execute(cust_stmt)
+    customer = c_res.scalar_one_or_none()
+    if not customer:
+        customer = Customer(
+            merchant_id="mer_default",
+            name=req.customer_name,
+            email=req.customer_email,
+            phone=req.customer_phone,
+            risk_score=0.2,
+        )
+        db.add(customer)
+        await db.flush()
+
+    # 2. Create Subscription
+    subscription = Subscription(
+        merchant_id="mer_default",
+        customer_id=customer.id,
+        razorpay_subscription_id=f"sub_man_{generate_id()}",
+        plan_name=req.plan_name,
+        amount=req.amount,
+        currency="INR",
+        status="ACTIVE",
+    )
+    db.add(subscription)
+    await db.flush()
+
+    # 3. Create Invoice
+    invoice = Invoice(
+        merchant_id="mer_default",
+        customer_id=customer.id,
+        subscription_id=subscription.id,
+        razorpay_invoice_id=f"inv_man_{generate_id()}",
+        amount=req.amount,
+        currency="INR",
+        status="FAILED",
+        failure_code=req.failure_code,
+        failure_reason=req.failure_reason,
+        payment_method="card" if req.card_type != "upi" else "upi",
+        card_type=req.card_type,
+        bank=req.bank,
+        retry_count=0,
+    )
+    db.add(invoice)
+    await db.flush()
+
+    # 4. Generate Real Razorpay Payment Link
+    payment_url = "https://rzp.io/rzp/fKH4bht"
+    try:
+        pl_res = await razorpay_service.create_payment_link(
+            amount=req.amount,
+            customer_name=customer.name,
+            customer_email=customer.email,
+            customer_phone=customer.phone,
+            description=f"RecoverFlow: {req.plan_name} renewal",
+            invoice_id=invoice.id,
+        )
+        if pl_res.get("short_url"):
+            payment_url = pl_res["short_url"]
+    except Exception as e:
+        logger.warning(f"Could not generate live Razorpay link for manual customer: {e}")
+
+    # 5. Calculate Smart Retry Strategy
+    retry_decision = smart_retry_scheduler.calculate_optimal_retry(
+        failure_code=req.failure_code,
+        failure_reason=req.failure_reason,
+        card_type=req.card_type,
+        bank=req.bank,
+        attempt_number=1,
+    )
+
+    # 6. Format Message
+    message = (
+        f"Hi {customer.name}! 👋 *RecoverFlow AI Alert*\n\n"
+        f"We noticed that your renewal of *₹{req.amount:,.2f}* for *{req.plan_name}* "
+        f"could not be completed due to a temporary bank timeout ({req.bank}).\n\n"
+        f"Your access remains completely active! You can settle instantly via UPI or Card:\n"
+        f"👉 *Pay Securely:* {payment_url}\n\n"
+        f"Optimal Bank Retry Window: {retry_decision['optimal_window']}"
+    )
+
+    # 7. Create Dunning Session
+    initial_chat = [
+        {
+            "role": "agent",
+            "message": message,
+            "timestamp": datetime.utcnow().strftime("%I:%M %p"),
+            "tool_calls": [
+                {
+                    "tool": "generate_razorpay_payment_link",
+                    "status": "success",
+                    "payment_url": payment_url,
+                }
+            ],
+        }
+    ]
+
+    session_status = "SMART_RETRY_SCHEDULED"
+    if retry_decision["strategy"] == "AI_DUNNING_IMMEDIATE":
+        session_status = "AI_ENGAGED"
+
+    session = DunningSession(
+        invoice_id=invoice.id,
+        customer_id=customer.id,
+        merchant_id="mer_default",
+        status=session_status,
+        channel="WHATSAPP",
+        chat_history=initial_chat,
+        razorpay_payment_link=payment_url,
+        optimal_retry_window=retry_decision["optimal_window"],
+        metadata_json={
+            "bank": req.bank,
+            "card_type": req.card_type,
+            "error_code": req.failure_code,
+            "error_description": req.failure_reason,
+            "retry_analysis": retry_decision,
+            "payment_link": payment_url,
+        },
+    )
+    db.add(session)
+
+    # 8. Dispatch Real WhatsApp / Direct Link
+    twilio_dispatch = {"status": "not_sent"}
+    if customer.phone:
+        try:
+            twilio_dispatch = await whatsapp_service.send_message(
+                to_phone=customer.phone,
+                message=message,
+            )
+        except Exception as e:
+            logger.warning(f"Could not dispatch WhatsApp for manual customer: {e}")
+            twilio_dispatch = {"success": False, "error": str(e)}
+
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Customer and failed transaction created successfully",
+        "session_id": session.id,
+        "invoice_id": invoice.id,
+        "customer": {
+            "name": customer.name,
+            "email": customer.email,
+            "phone": customer.phone,
+        },
+        "amount": req.amount,
+        "payment_link": payment_url,
+        "optimal_retry_window": retry_decision["optimal_window"],
+        "twilio_dispatch": twilio_dispatch,
+        "direct_whatsapp_url": whatsapp_service.get_direct_whatsapp_url(customer.phone, message),
+    }
+
+
+@router.delete("/transactions/{session_id}")
+async def delete_transaction(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Deletes a dunning session and its corresponding invoice record.
+    """
+    stmt = select(DunningSession).where(DunningSession.id == session_id)
+    res = await db.execute(stmt)
+    session = res.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dunning session '{session_id}' not found"
+        )
+
+    # Delete invoice if exists
+    if session.invoice_id:
+        inv_stmt = select(Invoice).where(Invoice.id == session.invoice_id)
+        inv_res = await db.execute(inv_stmt)
+        invoice = inv_res.scalar_one_or_none()
+        if invoice:
+            await db.delete(invoice)
+
+    await db.delete(session)
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": f"Successfully deleted customer session '{session_id}'",
+        "deleted_session_id": session_id,
+    }
+

@@ -12,10 +12,20 @@ import {
   CreditCard,
   Building,
   User,
-  X
+  X,
+  Trash2,
+  UserPlus,
+  Check,
+  AlertCircle
 } from "lucide-react";
-import { TransactionItem, triggerManualRetry } from "@/lib/api";
+import { 
+  TransactionItem, 
+  triggerManualRetry, 
+  deleteTransaction, 
+  verifyPaymentStatus 
+} from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import AddCustomerModal from "@/components/AddCustomerModal";
 
 interface TransactionsTableProps {
   transactions: TransactionItem[];
@@ -33,6 +43,11 @@ export default function TransactionsTable({
   const [search, setSearch] = useState("");
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<TransactionItem | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [verifyingSessionId, setVerifyingSessionId] = useState<string | null>(null);
+  const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
 
   const filterTabs = [
     { label: "All Invoices", value: "ALL" },
@@ -65,6 +80,46 @@ export default function TransactionsTable({
       alert(`Retry failed: ${e.message}`);
     } finally {
       setRetryingId(null);
+    }
+  };
+
+  const handleDelete = async (sessionId: string) => {
+    try {
+      setDeletingId(sessionId);
+      await deleteTransaction(sessionId);
+      setConfirmDeleteId(null);
+      if (selectedSession?.id === sessionId) {
+        setSelectedSession(null);
+      }
+      onRefresh();
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleVerifyStatus = async (sessionId: string) => {
+    try {
+      setVerifyingSessionId(sessionId);
+      setVerificationFeedback(null);
+      const res = await verifyPaymentStatus(sessionId);
+      if (res.is_recovered) {
+        setVerificationFeedback("Payment settled! Invoice marked as RECOVERED.");
+        onRefresh();
+        if (selectedSession && selectedSession.id === sessionId) {
+          setSelectedSession({
+            ...selectedSession,
+            recovery_status: "RECOVERED",
+          });
+        }
+      } else {
+        setVerificationFeedback(`Current status: ${res.status}. Payment not yet settled.`);
+      }
+    } catch (err: any) {
+      setVerificationFeedback(`Verification error: ${err.message}`);
+    } finally {
+      setVerifyingSessionId(null);
     }
   };
 
@@ -108,6 +163,13 @@ export default function TransactionsTable({
     }
   };
 
+  const getDirectWhatsAppUrl = (phone?: string, name?: string, amount?: number, link?: string) => {
+    if (!phone) return null;
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    const msg = `Hi ${name || "Customer"}! Your subscription payment of ₹${amount || 2499} needs renewal. Settle securely via Razorpay: ${link || "https://rzp.io/rzp/fKH4bht"}`;
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+  };
+
   return (
     <div className="rounded-2xl border border-gray-800/80 bg-gray-900/60 p-6 shadow-xl backdrop-blur-sm">
       {/* Table Header & Controls */}
@@ -115,11 +177,11 @@ export default function TransactionsTable({
         <div>
           <h2 className="text-lg font-bold text-white tracking-tight">Failed Payments & Dunning Tracker</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Real-time tracking of failed Razorpay subscriptions and AI recovery flows
+            Real-time tracking of failed Razorpay subscriptions, dunning state machine, and customer recovery history
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5">
           {/* Search bar */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
@@ -128,10 +190,21 @@ export default function TransactionsTable({
               placeholder="Search customer, bank, ID..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-52 sm:w-64 rounded-xl border border-gray-800 bg-gray-950/80 pl-9 pr-3 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="h-9 w-44 sm:w-56 rounded-xl border border-gray-800 bg-gray-950/80 pl-9 pr-3 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
+          {/* Add Customer Button */}
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex h-9 items-center space-x-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 text-xs font-semibold text-white shadow-md shadow-blue-500/20 hover:from-blue-500 hover:to-indigo-500 transition-all hover:scale-[1.02]"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Add Customer</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+
+          {/* Refresh Button */}
           <button
             onClick={onRefresh}
             disabled={isLoading}
@@ -189,7 +262,7 @@ export default function TransactionsTable({
                     <Search className="h-6 w-6" />
                   </div>
                   <p className="text-sm font-medium text-gray-300">No failed transactions found</p>
-                  <p className="text-xs text-gray-500 mt-1">Try changing filters or dispatch a mock failure from the simulator.</p>
+                  <p className="text-xs text-gray-500 mt-1">Add a new customer manually or dispatch a mock failure from the simulator.</p>
                 </td>
               </tr>
             ) : (
@@ -199,23 +272,54 @@ export default function TransactionsTable({
                   className="hover:bg-gray-800/30 transition-colors group cursor-pointer"
                   onClick={() => setSelectedSession(t)}
                 >
-                  {/* Customer */}
+                  {/* Customer with Delete Option Button Directly In Front of Customer Name */}
                   <td className="py-4 px-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold text-xs">
+                    <div className="flex items-center space-x-2.5">
+                      {/* Delete Option Button right in front of customer name */}
+                      <div onClick={(e) => e.stopPropagation()} className="shrink-0 flex items-center space-x-1">
+                        {confirmDeleteId === t.id ? (
+                          <div className="flex items-center space-x-1 bg-rose-950/80 border border-rose-500/40 rounded-lg p-1 animate-in fade-in">
+                            <button
+                              onClick={() => handleDelete(t.id)}
+                              disabled={deletingId === t.id}
+                              title="Confirm Delete Customer"
+                              className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-[10px] font-bold text-white transition-colors"
+                            >
+                              {deletingId === t.id ? "..." : "Delete"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-1.5 py-0.5 rounded text-gray-400 hover:text-white text-[10px]"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(t.id)}
+                            title="Delete customer history"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-all opacity-80 group-hover:opacity-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Customer Avatar & Name */}
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold text-xs shrink-0">
                         {(t.customer_name || "C").charAt(0)}
                       </div>
-                      <div>
-                        <div className="font-semibold text-white group-hover:text-blue-400 transition-colors">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white group-hover:text-blue-400 transition-colors truncate">
                           {t.customer_name || "Customer"}
                         </div>
-                        <div className="text-[11px] text-gray-400">{t.customer_email || "—"}</div>
+                        <div className="text-[11px] text-gray-400 truncate">{t.customer_email || "—"}</div>
                       </div>
                     </div>
                   </td>
 
                   {/* Amount */}
-                  <td className="py-4 px-4 font-bold text-white text-sm">
+                  <td className="py-4 px-4 font-bold text-white text-sm whitespace-nowrap">
                     {formatCurrency(t.amount, t.currency)}
                   </td>
 
@@ -237,7 +341,7 @@ export default function TransactionsTable({
                   </td>
 
                   {/* Optimal Retry Window */}
-                  <td className="py-4 px-4 text-[11px] text-gray-300">
+                  <td className="py-4 px-4 text-[11px] text-gray-300 whitespace-nowrap">
                     <div className="flex items-center space-x-1.5">
                       <Clock className="h-3.5 w-3.5 text-blue-400 shrink-0" />
                       <span className="font-medium">{t.optimal_retry_window || "Immediate"}</span>
@@ -250,11 +354,24 @@ export default function TransactionsTable({
                   {/* Actions */}
                   <td className="py-4 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end space-x-2">
+                      {/* Direct WhatsApp link */}
+                      {t.customer_phone && (
+                        <a
+                          href={getDirectWhatsAppUrl(t.customer_phone, t.customer_name, t.amount, t.payment_link) || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open WhatsApp chat with customer"
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+
                       <button
                         onClick={() => setSelectedSession(t)}
                         className="rounded-lg border border-gray-800 bg-gray-950/80 px-2.5 py-1 text-[11px] font-medium text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
                       >
-                        Inspect Session
+                        Inspect
                       </button>
 
                       {t.recovery_status !== "RECOVERED" && (
@@ -263,7 +380,7 @@ export default function TransactionsTable({
                           disabled={retryingId === t.id}
                           className="rounded-lg bg-blue-600/20 border border-blue-500/30 px-2.5 py-1 text-[11px] font-medium text-blue-400 hover:bg-blue-600/30 transition-colors disabled:opacity-50"
                         >
-                          {retryingId === t.id ? "Retrying..." : "Retry Now"}
+                          {retryingId === t.id ? "Retrying..." : "Retry"}
                         </button>
                       )}
                     </div>
@@ -275,13 +392,25 @@ export default function TransactionsTable({
         </table>
       </div>
 
+      {/* Add Customer Modal */}
+      <AddCustomerModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={() => {
+          onRefresh();
+        }}
+      />
+
       {/* Session Detail Modal / Drawer */}
       {selectedSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div className="relative w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <button
-              onClick={() => setSelectedSession(null)}
-              className="absolute right-4 top-4 rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white"
+              onClick={() => {
+                setSelectedSession(null);
+                setVerificationFeedback(null);
+              }}
+              className="absolute right-4 top-4 rounded-xl p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white"
             >
               <X className="h-5 w-5" />
             </button>
@@ -337,13 +466,59 @@ export default function TransactionsTable({
               </div>
             )}
 
-            <div className="flex justify-end space-x-3 pt-2 border-t border-gray-800">
-              <a
-                href={`/simulator`}
-                className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 transition-colors"
+            {/* Direct WhatsApp Action */}
+            {selectedSession.customer_phone && (
+              <div className="mb-4">
+                <a
+                  href={getDirectWhatsAppUrl(selectedSession.customer_phone, selectedSession.customer_name, selectedSession.amount, selectedSession.payment_link) || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center space-x-2 w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-md shadow-emerald-600/30"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span>Send Real WhatsApp Message to {selectedSession.customer_phone}</span>
+                </a>
+              </div>
+            )}
+
+            {/* Check Payment Settlement Status */}
+            <div className="mb-4">
+              <button
+                onClick={() => handleVerifyStatus(selectedSession.id)}
+                disabled={verifyingSessionId === selectedSession.id}
+                className="w-full flex items-center justify-center space-x-2 rounded-xl border border-gray-700 bg-gray-800/80 hover:bg-gray-700 px-4 py-2.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
               >
-                Open in WhatsApp Simulator
-              </a>
+                <RefreshCw className={`h-3.5 w-3.5 ${verifyingSessionId === selectedSession.id ? "animate-spin text-blue-400" : ""}`} />
+                <span>
+                  {verifyingSessionId === selectedSession.id ? "Checking Razorpay Settlement..." : "Check Real Razorpay Payment Status"}
+                </span>
+              </button>
+              {verificationFeedback && (
+                <p className="text-center text-[11px] text-gray-300 mt-1.5 font-medium">
+                  {verificationFeedback}
+                </p>
+              )}
+            </div>
+
+            {/* Delete Customer Button in modal */}
+            <div className="flex items-center justify-between pt-3 border-t border-gray-800">
+              <button
+                onClick={() => handleDelete(selectedSession.id)}
+                disabled={deletingId === selectedSession.id}
+                className="flex items-center space-x-1.5 text-xs text-rose-400 hover:text-rose-300 hover:underline transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>{deletingId === selectedSession.id ? "Deleting..." : "Delete Customer Record"}</span>
+              </button>
+
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setSelectedSession(null)}
+                  className="rounded-xl border border-gray-800 bg-gray-950 px-4 py-2 text-xs font-medium text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

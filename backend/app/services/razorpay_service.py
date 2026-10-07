@@ -138,5 +138,54 @@ class RazorpayService:
             "message": f"Subscription temporarily paused until {pause_until}.",
         }
 
+    async def fetch_payment_link_status(self, payment_link_id: str) -> Dict[str, Any]:
+        """
+        Fetches the real-time status of a Razorpay Payment Link directly from Razorpay.
+        Returns status ('paid', 'created', etc.), amount_paid, and payments.
+        """
+        if not payment_link_id:
+            return {"success": False, "error": "Missing payment link ID"}
+
+        # Extract ID if URL is provided (e.g. https://rzp.io/rzp/fKH4bht or https://rzp.io/i/plink_...)
+        clean_id = payment_link_id.strip()
+        if "/" in clean_id:
+            clean_id = clean_id.rstrip("/").split("/")[-1]
+
+        # Re-initialize client if keys updated
+        if not self.client or self.key_id != settings.RAZORPAY_KEY_ID:
+            self.key_id = settings.RAZORPAY_KEY_ID
+            self.key_secret = settings.RAZORPAY_KEY_SECRET
+            try:
+                self.client = razorpay.Client(auth=(self.key_id, self.key_secret))
+            except Exception as e:
+                logger.warning(f"Razorpay Client init error: {e}")
+
+        if self.client and not self.key_id.startswith("rzp_test_recoverflow"):
+            try:
+                response = self.client.payment_link.fetch(clean_id)
+                status = response.get("status")  # 'paid', 'created', 'cancelled', 'expired'
+                amount_paid = float(response.get("amount_paid", 0)) / 100.0
+                logger.info(f"Razorpay API live status for {clean_id}: {status} (paid: ₹{amount_paid})")
+                return {
+                    "success": True,
+                    "id": response.get("id"),
+                    "status": status,
+                    "is_paid": status == "paid" or amount_paid > 0,
+                    "amount_paid": amount_paid,
+                    "amount": float(response.get("amount", 0)) / 100.0,
+                    "payments": response.get("payments", []),
+                }
+            except Exception as e:
+                logger.warning(f"Razorpay payment_link.fetch API call error ({clean_id}): {e}")
+                return {"success": False, "error": str(e), "id": clean_id}
+
+        return {
+            "success": True,
+            "id": clean_id,
+            "status": "created",
+            "is_paid": False,
+            "mode": "simulated",
+        }
+
 
 razorpay_service = RazorpayService()

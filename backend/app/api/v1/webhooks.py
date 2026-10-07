@@ -97,7 +97,7 @@ async def handle_razorpay_webhook(
 
     if event_type in ["payment.failed", "invoice.payment_failed"]:
         result = await _handle_payment_failure(event_type, event_data, db)
-    elif event_type in ["subscription.charged", "payment.captured", "invoice.paid"]:
+    elif event_type in ["subscription.charged", "payment.captured", "invoice.paid", "payment_link.paid"]:
         result = await _handle_payment_success(event_type, event_data, db)
     else:
         logger.info(f"Received unhandled event type: {event_type}")
@@ -312,40 +312,62 @@ async def _handle_payment_success(event_type: str, payload_data: Dict[str, Any],
     """Handles recovered payment, closes dunning session, and marks invoice as PAID."""
     payment_entity = payload_data.get("payment", {}).get("entity", {})
     invoice_entity = payload_data.get("invoice", {}).get("entity", {})
+    plink_entity = payload_data.get("payment_link", {}).get("entity", {})
 
-    rzp_inv_id = invoice_entity.get("id") or payment_entity.get("invoice_id")
+    rzp_inv_id = (
+        invoice_entity.get("id")
+        or payment_entity.get("invoice_id")
+        or plink_entity.get("notes", {}).get("invoice_id")
+    )
+    plink_id = plink_entity.get("id") or payment_entity.get("payment_link_id")
+
+    invoice = None
+    session = None
 
     if rzp_inv_id:
-        stmt = select(Invoice).where(Invoice.razorpay_invoice_id == rzp_inv_id)
+        stmt = select(Invoice).where(
+            (Invoice.razorpay_invoice_id == rzp_inv_id) | (Invoice.id == rzp_inv_id)
+        )
         res = await db.execute(stmt)
         invoice = res.scalar_one_or_none()
 
-        if invoice:
-            invoice.status = "PAID"
+    if not invoice and plink_id:
+        dun_stmt = select(DunningSession).where(
+            DunningSession.razorpay_payment_link.contains(plink_id)
+        )
+        d_res = await db.execute(dun_stmt)
+        session = d_res.scalar_one_or_none()
+        if session and session.invoice_id:
+            inv_res = await db.execute(select(Invoice).where(Invoice.id == session.invoice_id))
+            invoice = inv_res.scalar_one_or_none()
 
-            # Find active dunning session
+    if invoice:
+        invoice.status = "PAID"
+
+        # Find active dunning session if not already found
+        if not session:
             dun_stmt = select(DunningSession).where(DunningSession.invoice_id == invoice.id)
             d_res = await db.execute(dun_stmt)
             session = d_res.scalar_one_or_none()
 
-            if session:
-                session.status = "RECOVERED"
-                session.recovered_at = datetime.utcnow()
-                history = list(session.chat_history or [])
-                history.append({
-                    "role": "agent",
-                    "message": "🎉 Great news! We have successfully received and verified your payment. Your subscription is fully active. Thank you!",
-                    "timestamp": datetime.utcnow().strftime("%I:%M %p"),
-                    "tool_calls": [],
-                })
-                session.chat_history = history
-                await db.commit()
+        if session:
+            session.status = "RECOVERED"
+            session.recovered_at = datetime.utcnow()
+            history = list(session.chat_history or [])
+            history.append({
+                "role": "agent",
+                "message": "🎉 Great news! We have successfully received and verified your payment via Razorpay. Your subscription is fully active. Thank you!",
+                "timestamp": datetime.utcnow().strftime("%I:%M %p"),
+                "tool_calls": [],
+            })
+            session.chat_history = history
+            await db.commit()
 
-                return {
-                    "status": "recovered",
-                    "invoice_id": invoice.id,
-                    "session_id": session.id,
-                }
+            return {
+                "status": "recovered",
+                "invoice_id": invoice.id,
+                "session_id": session.id,
+            }
 
     return {"status": "success_logged", "event": event_type}
 

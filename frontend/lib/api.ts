@@ -67,13 +67,16 @@ export interface SimulatorTriggerResponse {
   strategy: string;
   payment_link?: string;
   initial_greeting?: string;
+  direct_whatsapp_url?: string;
   twilio_dispatch?: {
     success?: boolean;
     sid?: string;
     status?: string;
     mode?: string;
     error?: string;
+    reason?: string;
     to?: string;
+    direct_url?: string;
   };
   chat_history: ChatMessage[];
   webhook_details: {
@@ -158,20 +161,58 @@ export async function triggerManualRetry(sessionId: string): Promise<any> {
   return res.json();
 }
 
-export async function verifyPaymentStatus(sessionId: string): Promise<{
+export async function verifyPaymentStatus(sessionId: string, forceMarkPaid: boolean = false): Promise<{
   session_id: string;
   status: string;
   invoice_status: string;
   is_recovered: boolean;
   amount: number;
   payment_link?: string;
+  razorpay_details?: any;
 }> {
   const res = await fetch(`${API_BASE}/api/v1/simulator/verify-payment`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({ session_id: sessionId, force_mark_paid: forceMarkPaid }),
   });
   if (!res.ok) throw new Error("Failed to verify payment status");
   return res.json();
 }
+
+export interface ManualCustomerPayload {
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  plan_name: string;
+  amount: number;
+  bank: string;
+  card_type: string;
+  failure_code: string;
+  failure_reason: string;
+}
+
+export async function createManualCustomer(payload: ManualCustomerPayload): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/v1/dashboard/customers/manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to create customer" }));
+    throw new Error(err.detail || "Failed to create customer");
+  }
+  return res.json();
+}
+
+export async function deleteTransaction(sessionId: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/api/v1/dashboard/transactions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to delete transaction" }));
+    throw new Error(err.detail || "Failed to delete transaction");
+  }
+  return res.json();
+}
+
 

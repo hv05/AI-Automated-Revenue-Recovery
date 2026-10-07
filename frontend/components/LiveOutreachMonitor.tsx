@@ -39,6 +39,19 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
   const strategy = data?.strategy || "BANK_CLEARING_WINDOW_RETRY";
   const twilioDispatch = data?.twilio_dispatch;
 
+  // Build message text
+  const messageText = data?.initial_greeting || (
+    `Hi ${customerName}! 👋 RecoverFlow AI Alert\n\n` +
+    `We noticed your subscription renewal of ₹${amount.toLocaleString("en-IN")}.00 ` +
+    `could not be completed due to a temporary bank timeout (${bank}).\n\n` +
+    `Your access remains active! Settle instantly via UPI or Card:\n` +
+    `👉 ${paymentLink}\n\n` +
+    `Optimal Bank Retry Window: ${retryWindow}`
+  );
+
+  const cleanPhone = customerPhone.replace(/[^0-9]/g, "");
+  const directWhatsAppUrl = data?.direct_whatsapp_url || `https://wa.me/${cleanPhone}?text=${encodeURIComponent(messageText)}`;
+
   const handleCopyLink = () => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(paymentLink);
@@ -47,18 +60,22 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
     }
   };
 
-  const handleCheckStatus = async () => {
+  const handleCheckStatus = async (forcePaid: boolean = false) => {
     if (!data?.session_id) return;
     try {
       setIsChecking(true);
       setStatusMessage(null);
-      const res = await verifyPaymentStatus(data.session_id);
+      const res = await verifyPaymentStatus(data.session_id, forcePaid);
       if (res.is_recovered) {
         setIsSettled(true);
-        setStatusMessage("Payment captured and settled via Razorpay! Dunning resolved.");
+        setStatusMessage(
+          forcePaid 
+            ? "Simulated payment captured! Status changed to RECOVERED & PAID." 
+            : "Live payment confirmed & settled via Razorpay API! Status updated to RECOVERED & PAID."
+        );
         if (onRecovered) onRecovered();
       } else {
-        setStatusMessage(`Current status: ${res.status}. Payment not yet completed.`);
+        setStatusMessage(`Razorpay API reports status: ${res.status}. Payment has not been completed yet.`);
       }
     } catch (err: any) {
       setStatusMessage(`Verification error: ${err.message}`);
@@ -106,10 +123,10 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
         <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-emerald-300 animate-in fade-in">
           <div className="flex items-center space-x-2 font-bold text-sm">
             <Sparkles className="h-4 w-4 text-emerald-400" />
-            <span>Revenue Successfully Recovered!</span>
+            <span>Revenue Successfully Recovered & Settled!</span>
           </div>
           <p className="text-xs text-emerald-400/90 mt-1">
-            Payment of ₹{amount.toLocaleString("en-IN")} was verified via Razorpay API. Subscription access has been maintained.
+            Payment of ₹{amount.toLocaleString("en-IN")} was confirmed via Razorpay. Customer access is preserved and dunning is completed.
           </p>
         </div>
       )}
@@ -157,7 +174,7 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
         </div>
       </div>
 
-      {/* CARD 2: Real Twilio WhatsApp Outreach Delivery */}
+      {/* CARD 2: Real WhatsApp Outreach Delivery */}
       <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -166,7 +183,7 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
             </div>
             <div>
               <span className="text-xs font-bold text-white">Live WhatsApp Outreach</span>
-              <p className="text-[10px] text-gray-400">Delivered via Twilio WhatsApp API</p>
+              <p className="text-[10px] text-gray-400">Twilio API & 1-Click Direct WhatsApp Messaging</p>
             </div>
           </div>
 
@@ -176,19 +193,27 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
             </span>
             {twilioDispatch?.success ? (
               <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                SENT
-              </span>
-            ) : twilioDispatch?.mode === "live" ? (
-              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                LIVE DISPATCH
+                SENT VIA TWILIO
               </span>
             ) : (
-              <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-400 border border-blue-500/30">
-                ACTIVE
+              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                1-CLICK WHATSAPP READY
               </span>
             )}
           </div>
         </div>
+
+        {/* 1-Click Direct WhatsApp Button */}
+        <a
+          href={directWhatsAppUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center justify-center space-x-2 w-full rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-600/25 transition-all hover:scale-[1.01]"
+        >
+          <MessageSquare className="h-4 w-4" />
+          <span>Send Real WhatsApp Message to {customerPhone} Now</span>
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
 
         {/* Formatted Message Sent to WhatsApp */}
         <div className="rounded-lg border border-gray-800/80 bg-[#0b141a] p-3 text-xs text-gray-200 shadow-inner font-sans space-y-1.5">
@@ -196,20 +221,19 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
             WhatsApp Outbound Message Payload:
           </div>
           <div className="whitespace-pre-line leading-relaxed text-gray-300 text-[11px] bg-gray-900/50 p-2.5 rounded border border-gray-800">
-            {data?.initial_greeting || (
-              `Hi ${customerName}! 👋 RecoverFlow AI Alert\n\n` +
-              `We noticed your subscription renewal of ₹${amount.toLocaleString("en-IN")}.00 ` +
-              `could not be completed due to a temporary bank timeout (${bank}).\n\n` +
-              `Your access remains active! Settle instantly via UPI or Card:\n` +
-              `👉 ${paymentLink}\n\n` +
-              `Optimal Bank Retry Window: ${retryWindow}`
-            )}
+            {messageText}
           </div>
+
+          {twilioDispatch?.error && (
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[11px] text-amber-300 mt-2">
+              <span className="font-semibold">Twilio Note:</span> {twilioDispatch.error}. Use the direct WhatsApp button above to send real messages on your phone without Twilio limits.
+            </div>
+          )}
 
           {twilioDispatch?.sid && (
             <div className="flex items-center justify-between text-[10px] text-gray-500 pt-1 font-mono">
               <span>Twilio Message SID: {twilioDispatch.sid}</span>
-              <span className="text-emerald-400">Encrypted • 256-bit</span>
+              <span className="text-emerald-400">Delivered</span>
             </div>
           )}
         </div>
@@ -251,18 +275,32 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
       </div>
 
       {/* CARD 4: Real-time Status Verification */}
-      <div className="mt-auto pt-2">
-        <button
-          onClick={handleCheckStatus}
-          disabled={!data?.session_id || isChecking}
-          className="w-full flex items-center justify-center space-x-2 rounded-xl border border-gray-700 bg-gradient-to-r from-gray-900 to-gray-800 px-4 py-3 text-xs font-bold text-white hover:border-gray-600 hover:from-gray-800 hover:to-gray-700 transition-all shadow-md disabled:opacity-40"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? "animate-spin text-blue-400" : ""}`} />
-          <span>{isChecking ? "Querying Razorpay Settlement..." : "Check Real Razorpay Payment Status"}</span>
-        </button>
+      <div className="mt-auto pt-2 space-y-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+          <button
+            onClick={() => handleCheckStatus(false)}
+            disabled={!data?.session_id || isChecking}
+            className="flex-1 flex items-center justify-center space-x-2 rounded-xl border border-gray-700 bg-gradient-to-r from-gray-900 to-gray-800 px-4 py-3 text-xs font-bold text-white hover:border-gray-600 hover:from-gray-800 hover:to-gray-700 transition-all shadow-md disabled:opacity-40"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? "animate-spin text-blue-400" : ""}`} />
+            <span>{isChecking ? "Querying Razorpay Settlement..." : "Check Real Razorpay Payment Status"}</span>
+          </button>
+
+          {/* Quick simulation helper if testing in sandbox */}
+          {data?.session_id && !isSettled && (
+            <button
+              onClick={() => handleCheckStatus(true)}
+              disabled={isChecking}
+              title="Mark as paid immediately for testing"
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 px-3 py-3 text-xs font-semibold transition-colors disabled:opacity-40 whitespace-nowrap"
+            >
+              Simulate Instant Settlement
+            </button>
+          )}
+        </div>
 
         {statusMessage && (
-          <p className="text-center text-[11px] text-gray-400 mt-2 font-medium">
+          <p className="text-center text-[11px] text-gray-300 font-medium animate-in fade-in">
             {statusMessage}
           </p>
         )}
