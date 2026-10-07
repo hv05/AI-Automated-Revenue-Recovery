@@ -167,7 +167,7 @@ export default function DashboardPage() {
             </span>
           </div>
           <p className="text-xs sm:text-sm text-gray-400 mt-1 max-w-2xl">
-            RecoverFlow AI automatically intercepts Razorpay payment failures, schedules bank-optimized retries, 
+            RecoverFlow AI automatically intercepts subscription payment failures, schedules bank-optimized retries, 
             and conducts multi-turn WhatsApp dunning conversations to save recurring revenue.
           </p>
         </div>

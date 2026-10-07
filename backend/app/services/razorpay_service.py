@@ -157,14 +157,15 @@ class RazorpayService:
 
     async def fetch_payment_link_status(self, payment_link_id: str) -> Dict[str, Any]:
         """
-        Fetches the real-time status of a Razorpay Payment Link directly from Razorpay.
-        Returns status ('paid', 'created', etc.), amount_paid, and payments.
+        Fetches the real-time status of a Payment Link directly from the payment gateway.
+        Supports full URLs, shortcodes (e.g. kXHvRFN), and standard plink IDs.
+        Returns status ('paid', 'created', etc.), is_paid, and amount_paid.
         """
         if not payment_link_id:
             return {"success": False, "error": "Missing payment link ID"}
 
-        # Extract ID if URL is provided (e.g. https://rzp.io/rzp/fKH4bht or https://rzp.io/i/plink_...)
-        clean_id = payment_link_id.strip()
+        raw_input = payment_link_id.strip()
+        clean_id = raw_input
         if "/" in clean_id:
             clean_id = clean_id.rstrip("/").split("/")[-1]
 
@@ -175,25 +176,64 @@ class RazorpayService:
             try:
                 self.client = razorpay.Client(auth=(self.key_id, self.key_secret))
             except Exception as e:
-                logger.warning(f"Razorpay Client init error: {e}")
+                logger.warning(f"Payment Client init error: {e}")
 
         if self.client and not self.key_id.startswith("rzp_test_recoverflow"):
+            response = None
             try:
-                response = self.client.payment_link.fetch(clean_id)
+                # 1. If clean_id does not start with plink_, search in all links by short_url match
+                if not clean_id.startswith("plink_"):
+                    all_links = self.client.payment_link.all({"count": 30})
+                    for item in all_links.get("payment_links", []):
+                        if (
+                            item.get("id") == clean_id
+                            or item.get("short_url", "").endswith(clean_id)
+                            or item.get("short_url") == raw_input
+                        ):
+                            response = item
+                            break
+
+                # 2. If not found or clean_id is plink_*, fetch directly
+                if not response:
+                    response = self.client.payment_link.fetch(clean_id)
+
                 status = response.get("status")  # 'paid', 'created', 'cancelled', 'expired'
                 amount_paid = float(response.get("amount_paid", 0)) / 100.0
-                logger.info(f"Razorpay API live status for {clean_id}: {status} (paid: ₹{amount_paid})")
+                is_paid = status == "paid" or amount_paid > 0
+                logger.info(f"Payment Link live status for {clean_id}: {status} (paid: ₹{amount_paid})")
                 return {
                     "success": True,
                     "id": response.get("id"),
                     "status": status,
-                    "is_paid": status == "paid" or amount_paid > 0,
+                    "is_paid": is_paid,
                     "amount_paid": amount_paid,
                     "amount": float(response.get("amount", 0)) / 100.0,
                     "payments": response.get("payments", []),
                 }
             except Exception as e:
-                logger.warning(f"Razorpay payment_link.fetch API call error ({clean_id}): {e}")
+                logger.warning(f"Payment link fetch API call error ({clean_id}): {e}")
+                # Fallback: scan existing links list in case fetch failed on slug
+                try:
+                    all_links = self.client.payment_link.all({"count": 30})
+                    for item in all_links.get("payment_links", []):
+                        if (
+                            item.get("id") == clean_id
+                            or item.get("short_url", "").endswith(clean_id)
+                            or item.get("short_url") == raw_input
+                        ):
+                            status = item.get("status")
+                            amount_paid = float(item.get("amount_paid", 0)) / 100.0
+                            return {
+                                "success": True,
+                                "id": item.get("id"),
+                                "status": status,
+                                "is_paid": status == "paid" or amount_paid > 0,
+                                "amount_paid": amount_paid,
+                                "amount": float(item.get("amount", 0)) / 100.0,
+                                "payments": item.get("payments", []),
+                            }
+                except Exception:
+                    pass
                 return {"success": False, "error": str(e), "id": clean_id}
 
         return {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ShieldCheck,
   ExternalLink,
@@ -30,7 +30,7 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
   const [isSettled, setIsSettled] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const paymentLink = data?.payment_link || "https://rzp.io/rzp/fKH4bht";
+  const paymentLink = data?.payment_link || "https://rzp.io/rzp/kXHvRFN";
   const customerName = data?.customer?.name || "Rahul Sharma";
   const customerPhone = data?.customer?.phone || "+918432184524";
   const amount = data?.amount || 2499;
@@ -38,6 +38,30 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
   const retryWindow = data?.optimal_retry_window || "Tomorrow at 09:30 AM IST (HDFC Clearing)";
   const strategy = data?.strategy || "BANK_CLEARING_WINDOW_RETRY";
   const twilioDispatch = data?.twilio_dispatch;
+
+  // Reset settled state if session changes
+  useEffect(() => {
+    setIsSettled(false);
+    setStatusMessage(null);
+  }, [data?.session_id]);
+
+  // Auto-poll payment settlement status every 3.5 seconds
+  useEffect(() => {
+    if (!data?.session_id || isSettled) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await verifyPaymentStatus(data.session_id);
+        if (res.is_recovered) {
+          setIsSettled(true);
+          setStatusMessage("Live payment confirmed & settled! Status updated to RECOVERED & PAID.");
+          if (onRecovered) onRecovered();
+        }
+      } catch (e) {
+        // silent polling
+      }
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [data?.session_id, isSettled, onRecovered]);
 
   // Build message text
   const messageText = data?.initial_greeting || (
@@ -71,11 +95,11 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
         setStatusMessage(
           forcePaid 
             ? "Simulated payment captured! Status changed to RECOVERED & PAID." 
-            : "Live payment confirmed & settled via Razorpay API! Status updated to RECOVERED & PAID."
+            : "Live payment confirmed & settled! Status updated to RECOVERED & PAID."
         );
         if (onRecovered) onRecovered();
       } else {
-        setStatusMessage(`Razorpay API reports status: ${res.status}. Payment has not been completed yet.`);
+        setStatusMessage(`Payment gateway reports status: ${res.status}. Payment has not been completed yet.`);
       }
     } catch (err: any) {
       setStatusMessage(`Verification error: ${err.message}`);
@@ -99,7 +123,7 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
             </h2>
           </div>
           <p className="text-xs text-gray-400 mt-0.5">
-            Real-time pipeline tracking: Razorpay Webhook → Smart Retry Matrix → Live WhatsApp Dispatch
+            Real-time pipeline tracking: Payment Failure Webhook → Smart Retry Matrix → Live WhatsApp Dispatch
           </p>
         </div>
 
@@ -126,12 +150,12 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
             <span>Revenue Successfully Recovered & Settled!</span>
           </div>
           <p className="text-xs text-emerald-400/90 mt-1">
-            Payment of ₹{amount.toLocaleString("en-IN")} was confirmed via Razorpay. Customer access is preserved and dunning is completed.
+            Payment of ₹{amount.toLocaleString("en-IN")} was confirmed. Customer access is preserved and dunning is completed.
           </p>
         </div>
       )}
 
-      {/* CARD 1: Official Razorpay 1-Click Settlement Link */}
+      {/* CARD 1: 1-Click Direct Settlement Link */}
       <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -139,7 +163,7 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
               <CreditCard className="h-4 w-4" />
             </div>
             <div>
-              <span className="text-xs font-bold text-white">Razorpay 1-Click Settlement Link</span>
+              <span className="text-xs font-bold text-white">1-Click Direct Settlement Link</span>
               <p className="text-[10px] text-gray-400">Official UPI / GPay / Netbanking payment link</p>
             </div>
           </div>
@@ -283,7 +307,7 @@ export default function LiveOutreachMonitor({ data, onRecovered }: LiveOutreachM
             className="flex-1 flex items-center justify-center space-x-2 rounded-xl border border-gray-700 bg-gradient-to-r from-gray-900 to-gray-800 px-4 py-3 text-xs font-bold text-white hover:border-gray-600 hover:from-gray-800 hover:to-gray-700 transition-all shadow-md disabled:opacity-40"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? "animate-spin text-blue-400" : ""}`} />
-            <span>{isChecking ? "Querying Razorpay Settlement..." : "Check Real Razorpay Payment Status"}</span>
+            <span>{isChecking ? "Checking Payment Settlement..." : "Check Real Payment Settlement Status"}</span>
           </button>
 
           {/* Quick simulation helper if testing in sandbox */}

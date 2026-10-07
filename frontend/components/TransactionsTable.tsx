@@ -74,7 +74,7 @@ export default function TransactionsTable({
     try {
       setRetryingId(sessionId);
       await triggerManualRetry(sessionId);
-      alert("Manual Razorpay retry triggered successfully!");
+      alert("Manual payment retry triggered successfully!");
       onRefresh();
     } catch (e: any) {
       alert(`Retry failed: ${e.message}`);
@@ -166,7 +166,7 @@ export default function TransactionsTable({
   const getDirectWhatsAppUrl = (phone?: string, name?: string, amount?: number, link?: string) => {
     if (!phone) return null;
     const cleanPhone = phone.replace(/[^0-9]/g, "");
-    const msg = `Hi ${name || "Customer"}! Your subscription payment of ₹${amount || 2499} needs renewal. Settle securely via Razorpay: ${link || "https://rzp.io/rzp/fKH4bht"}`;
+    const msg = `Hi ${name || "Customer"}! Your subscription payment of ₹${amount || 2499} needs renewal. Settle securely: ${link || "https://rzp.io/rzp/kXHvRFN"}`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
@@ -177,7 +177,7 @@ export default function TransactionsTable({
         <div>
           <h2 className="text-lg font-bold text-white tracking-tight">Failed Payments & Dunning Tracker</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Real-time tracking of failed Razorpay subscriptions, dunning state machine, and customer recovery history
+            Real-time tracking of failed payments, dunning state machine, and customer recovery history
           </p>
         </div>
 
@@ -445,7 +445,7 @@ export default function TransactionsTable({
             </div>
 
             <div className="mb-4">
-              <span className="text-xs font-semibold text-gray-300">Failure Diagnostics (Razorpay Error)</span>
+              <span className="text-xs font-semibold text-gray-300">Failure Diagnostics (Gateway Error)</span>
               <p className="mt-1 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">
                 {selectedSession.failure_reason} (Code: {selectedSession.failure_code})
               </p>
@@ -453,7 +453,7 @@ export default function TransactionsTable({
 
             {selectedSession.payment_link && (
               <div className="mb-4">
-                <span className="text-xs font-semibold text-gray-300">Generated Razorpay Recovery Link</span>
+                <span className="text-xs font-semibold text-gray-300">Generated Payment Recovery Link</span>
                 <a
                   href={selectedSession.payment_link}
                   target="_blank"
@@ -490,7 +490,7 @@ export default function TransactionsTable({
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${verifyingSessionId === selectedSession.id ? "animate-spin text-blue-400" : ""}`} />
                 <span>
-                  {verifyingSessionId === selectedSession.id ? "Checking Razorpay Settlement..." : "Check Real Razorpay Payment Status"}
+                  {verifyingSessionId === selectedSession.id ? "Checking Payment Settlement..." : "Check Real Payment Settlement Status"}
                 </span>
               </button>
               {verificationFeedback && (

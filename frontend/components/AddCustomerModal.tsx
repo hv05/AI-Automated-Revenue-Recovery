@@ -118,7 +118,7 @@ export default function AddCustomerModal({
               Add Customer Manually
             </h2>
             <p className="text-xs text-gray-400">
-              Create customer, log failed payment, generate Razorpay recovery link & trigger WhatsApp outreach
+              Create customer, log failed payment, generate payment recovery link & trigger WhatsApp outreach
             </p>
           </div>
         </div>
@@ -145,7 +145,7 @@ export default function AddCustomerModal({
             {/* Generated Payment Link */}
             {createdResult.payment_link && (
               <div className="rounded-xl border border-gray-800 bg-gray-950/80 p-3.5 space-y-2">
-                <span className="text-[11px] font-semibold text-gray-300">Razorpay Payment Recovery Link:</span>
+                <span className="text-[11px] font-semibold text-gray-300">Secure Payment Recovery Link:</span>
                 <div className="flex items-center justify-between rounded-lg border border-blue-500/30 bg-blue-500/10 p-2.5 text-xs text-blue-400">
                   <span className="truncate font-mono">{createdResult.payment_link}</span>
                   <a

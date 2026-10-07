@@ -41,7 +41,7 @@ export default function SimulatorPage() {
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
-              Simulate or dispatch Razorpay payment failures on the left, monitor real-time WhatsApp outreach, 1-click settlement links, and bank clearing retries on the right.
+              Simulate or dispatch payment failures on the left, monitor real-time WhatsApp outreach, 1-click settlement links, and bank clearing retries on the right.
             </p>
           </div>
         </div>

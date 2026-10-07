@@ -3,8 +3,8 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
-  title: "RecoverFlow AI | Automated Revenue Recovery for Razorpay",
-  description: "AI-powered revenue recovery platform handling failed payments using intelligent retries and interactive AI dunning agents.",
+  title: "RecoverFlow AI | Intelligent Automated Revenue Recovery",
+  description: "AI-powered revenue recovery platform handling failed subscription payments using intelligent retries and interactive AI dunning agents.",
 };
 
 export default function RootLayout({
@@ -19,7 +19,7 @@ export default function RootLayout({
         <main className="min-h-[calc(100vh-65px)]">{children}</main>
         <footer className="border-t border-gray-800/80 bg-gray-950/60 py-6 text-center text-xs text-gray-500">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
-            <p>© {new Date().getFullYear()} RecoverFlow AI. Production-grade revenue recovery engine for Razorpay merchants.</p>
+            <p>© {new Date().getFullYear()} RecoverFlow AI. Production-grade automated revenue recovery platform.</p>
             <div className="flex space-x-4 text-gray-400">
               <span>PCI-DSS Level 1 Compliant</span>
               <span>•</span>

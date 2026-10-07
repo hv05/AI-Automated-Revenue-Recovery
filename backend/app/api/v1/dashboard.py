@@ -107,6 +107,38 @@ async def get_dashboard_transactions(
     results = await db.execute(query.limit(limit))
     rows = results.all()
 
+    # Automatic payment reconciliation with gateway
+    try:
+        if razorpay_service.client and not razorpay_service.key_id.startswith("rzp_test_recoverflow"):
+            all_links = razorpay_service.client.payment_link.all({"count": 30})
+            paid_items = [
+                l for l in all_links.get("payment_links", [])
+                if l.get("status") == "paid" or float(l.get("amount_paid", 0)) > 0
+            ]
+            paid_set = set()
+            for p in paid_items:
+                if p.get("short_url"):
+                    paid_set.add(p["short_url"].strip())
+                    paid_set.add(p["short_url"].rstrip("/").split("/")[-1])
+                if p.get("id"):
+                    paid_set.add(p["id"])
+
+            updated_any = False
+            for session, invoice, customer in rows:
+                if session.status != "RECOVERED" and session.razorpay_payment_link:
+                    link_raw = session.razorpay_payment_link.strip()
+                    link_slug = link_raw.rstrip("/").split("/")[-1]
+                    if link_raw in paid_set or link_slug in paid_set:
+                        session.status = "RECOVERED"
+                        session.recovered_at = datetime.utcnow()
+                        if invoice:
+                            invoice.status = "PAID"
+                        updated_any = True
+            if updated_any:
+                await db.commit()
+    except Exception as e:
+        logger.warning(f"Dashboard auto-reconciliation warning: {e}")
+
     transactions = []
     for session, invoice, customer in rows:
         if search:

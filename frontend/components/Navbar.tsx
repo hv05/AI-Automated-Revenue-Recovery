@@ -23,7 +23,7 @@ export default function Navbar() {
                   AI
                 </span>
               </div>
-              <p className="text-[11px] text-gray-400">Razorpay Revenue Recovery Engine</p>
+              <p className="text-[11px] text-gray-400">AI Revenue Recovery Engine</p>
             </div>
           </Link>
 
@@ -59,7 +59,7 @@ export default function Navbar() {
         <div className="flex items-center space-x-4">
           <div className="hidden sm:flex items-center space-x-2 rounded-full border border-gray-800 bg-gray-900/80 px-3 py-1 text-xs text-gray-300">
             <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-            <span>Razorpay Webhooks Active</span>
+            <span>Gateway Webhooks Active</span>
           </div>
 
           <a

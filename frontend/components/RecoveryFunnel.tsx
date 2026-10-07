@@ -7,7 +7,7 @@ export default function RecoveryFunnel() {
   const steps = [
     {
       title: "1. Webhook Intercepted",
-      desc: "Razorpay payment.failed validated with HMAC SHA-256",
+      desc: "Payment failure webhook validated with HMAC SHA-256",
       stat: "100%",
       sub: "Zero drops",
       icon: ShieldAlert,

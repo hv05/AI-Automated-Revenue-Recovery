@@ -163,7 +163,7 @@ export default function WhatsAppChatPreview({
       <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#0b141a]/95 bg-opacity-95">
         {/* Security Notice */}
         <div className="mx-auto max-w-xs rounded-lg bg-[#182229] px-3 py-1.5 text-center text-[10px] text-amber-300/80 border border-amber-500/20 shadow-sm">
-          🔒 Messages are secured with 256-bit Razorpay Merchant & PCI-DSS encryption
+          🔒 Messages are secured with 256-bit End-to-End & PCI-DSS encryption
         </div>
 
         {/* Empty state if no session */}
@@ -172,7 +172,7 @@ export default function WhatsAppChatPreview({
             <Zap className="h-10 w-10 text-gray-600 mb-2 animate-bounce" />
             <p className="text-xs font-medium text-gray-400">Ready to simulate recovery chat</p>
             <p className="text-[11px] text-gray-600 max-w-xs mt-1">
-              Select a preset on the left and click &quot;Fire Razorpay Webhook Event&quot; to initiate the AI dunning outreach.
+              Select a preset on the left and click &quot;Dispatch Payment Failure Event&quot; to initiate the AI dunning outreach.
             </p>
           </div>
         )}
@@ -212,7 +212,7 @@ export default function WhatsAppChatPreview({
                         {tool.payment_url && (
                           <div className="mt-2 rounded-lg bg-gray-900/80 p-2 border border-gray-800">
                             <div className="flex items-center justify-between text-gray-300">
-                              <span className="font-semibold text-white">Razorpay 1-Click Settlement</span>
+                              <span className="font-semibold text-white">1-Click Direct Settlement</span>
                               <CreditCard className="h-3.5 w-3.5 text-emerald-400" />
                             </div>
                             <div className="text-[10px] text-gray-400 mt-0.5">UPI, GPay, Cards, Netbanking</div>

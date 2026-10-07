@@ -105,7 +105,7 @@ export default function WebhookSimulatorForm({ onSuccess }: WebhookSimulatorForm
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-500/20 text-blue-400">
               <Terminal className="h-3.5 w-3.5" />
             </span>
-            <h2 className="text-base font-bold text-white">Razorpay Webhook Dispatcher</h2>
+            <h2 className="text-base font-bold text-white">Payment Webhook Dispatcher</h2>
           </div>
           <p className="text-xs text-gray-400 mt-1">
             Trigger simulated <code className="text-rose-400 bg-gray-950 px-1 py-0.5 rounded">payment.failed</code> events with HMAC SHA-256 verification
@@ -260,7 +260,7 @@ export default function WebhookSimulatorForm({ onSuccess }: WebhookSimulatorForm
           className="w-full flex items-center justify-center space-x-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 hover:from-blue-500 hover:to-indigo-500 transition-all disabled:opacity-50"
         >
           <Zap className="h-4 w-4 fill-white" />
-          <span>{isSubmitting ? "Processing Webhook & Scheduling Engine..." : "Fire Razorpay Webhook Event"}</span>
+          <span>{isSubmitting ? "Processing Webhook & Scheduling Engine..." : "Dispatch Payment Failure Event"}</span>
         </button>
       </form>
 
@@ -281,7 +281,7 @@ export default function WebhookSimulatorForm({ onSuccess }: WebhookSimulatorForm
           {showPayload && (
             <div className="mt-3 space-y-2 border-t border-gray-800 pt-3">
               <div>
-                <span className="text-[10px] text-gray-400 font-mono">X-Razorpay-Signature (HMAC SHA-256):</span>
+                <span className="text-[10px] text-gray-400 font-mono">Webhook Signature (HMAC SHA-256):</span>
                 <div className="font-mono text-[11px] text-emerald-400 truncate bg-gray-900 px-2 py-1 rounded border border-gray-800 mt-0.5">
                   {lastDispatched.webhook_details.signature}
                 </div>
